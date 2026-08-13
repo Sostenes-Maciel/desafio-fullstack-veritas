@@ -1,0 +1,16 @@
+# ESTÁGIO 1: Build (Prepara o código React/Vite para produção)
+FROM node:20-alpine as build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# ESTÁGIO 2: Servidor Web (Usa o Nginx para servir os arquivos estáticos)
+FROM nginx:alpine
+# Copia a pasta 'dist' gerada no estágio anterior para o Nginx
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,21 @@
+
+services:
+  backend:
+    build: 
+      context: ./backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - backend_data:/app
+
+  frontend:
+    build: 
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+# Declaração do volume nomeado para persistência
+volumes:
+  backend_data:
