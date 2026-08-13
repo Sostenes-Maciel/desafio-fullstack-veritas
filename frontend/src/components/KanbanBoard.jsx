@@ -1,65 +1,113 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import TaskCard from './TaskCard';
 import TaskModal from './TaskModal';
 
-const initialTasks = [
-  { id: 1, title: 'Criar API em Go', description: 'Construir o CRUD', status: 'TODO' },
-  { id: 2, title: 'Testar Tailwind', description: 'Ajustar layout', status: 'IN_PROGRESS' },
-];
+const API_URL = 'http://localhost:8080/api/tasks';
 
 export default function KanbanBoard() {
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState([]); // Agora começa vazio!
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState(null);
   
-  // Novos estados para Feedback Visual
   const [isLoading, setIsLoading] = useState(false);
-  const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' }
+  const [toast, setToast] = useState(null);
 
-  // Função para mostrar o Toast por 3 segundos
+  // 1. CARREGAR AS TAREFAS DO GO (GET)
+  useEffect(() => {
+    fetch(API_URL)
+      .then(res => res.json())
+      .then(data => {
+        // Garante que se a API retornar null, setamos um array vazio
+        setTasks(data || []); 
+      })
+      .catch(err => console.error("Erro ao carregar tarefas:", err));
+  }, []);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleSaveTask = (taskData) => {
-    setIsLoading(true); // Começa a carregar
-    
-    // Simulando o tempo de ida ao Backend (Go)
-    setTimeout(() => {
-      if (taskData.id) {
-        setTasks(tasks.map(t => t.id === taskData.id ? taskData : t));
-        showToast('Tarefa atualizada com sucesso!');
-      } else {
-        const newTask = { ...taskData, id: Date.now() };
-        setTasks([...tasks, newTask]);
-        showToast('Nova tarefa criada!');
-      }
-      setIsLoading(false);
-      setIsModalOpen(false);
-    }, 800); // 800ms de atraso fake
-  };
-
-  const handleDeleteTask = (taskId) => {
+  // 2. SALVAR OU EDITAR TAREFA (POST / PUT)
+  const handleSaveTask = async (taskData) => {
     setIsLoading(true);
-    setTimeout(() => {
-      setTasks(tasks.filter(t => t.id !== taskId));
-      showToast('Tarefa excluída!', 'success');
+    
+    try {
+      if (taskData.id) {
+        // EDITAR (PUT)
+        const res = await fetch(`${API_URL}/${taskData.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(taskData)
+        });
+        if (res.ok) {
+          setTasks(tasks.map(t => t.id === taskData.id ? taskData : t));
+          showToast('Tarefa atualizada com sucesso!');
+        }
+      } else {
+        // CRIAR NOVA (POST)
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(taskData)
+        });
+        if (res.ok) {
+          const newTask = await res.json();
+          setTasks([...tasks, newTask]);
+          showToast('Nova tarefa criada!');
+        }
+      }
+    } catch (error) {
+      showToast('Erro ao comunicar com o servidor', 'error');
+    } finally {
       setIsLoading(false);
       setIsModalOpen(false);
-    }, 800);
+    }
   };
 
-  const handleMoveTask = (taskId, currentStatus) => {
-    // Para mover, não abrimos modal, então o feedback é imediato
-    setTasks(tasks.map(task => {
-      if (task.id === taskId) {
-        let newStatus = currentStatus === 'TODO' ? 'IN_PROGRESS' : 'DONE';
-        return { ...task, status: newStatus };
+  // 3. DELETAR TAREFA (DELETE)
+  const handleDeleteTask = async (taskId) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/${taskId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setTasks(tasks.filter(t => t.id !== taskId));
+        showToast('Tarefa excluída!', 'success');
       }
-      return task;
-    }));
-    showToast('Tarefa movida!', 'success');
+    } catch (error) {
+      showToast('Erro ao excluir tarefa', 'error');
+    } finally {
+      setIsLoading(false);
+      setIsModalOpen(false);
+    }
+  };
+
+  // 4. MOVER TAREFA (PUT)
+  const handleMoveTask = async (taskId, currentStatus) => {
+    // Acha a tarefa na lista
+    const taskToMove = tasks.find(t => t.id === taskId);
+    if (!taskToMove) return;
+
+    // Define o novo status
+    let newStatus = currentStatus === 'TODO' ? 'IN_PROGRESS' : 'DONE';
+    const updatedTask = { ...taskToMove, status: newStatus };
+
+    // Atualiza otimisticamente a tela para parecer instantâneo para o usuário
+    setTasks(tasks.map(task => task.id === taskId ? updatedTask : task));
+
+    // Manda para o Go salvar no JSON
+    try {
+      const res = await fetch(`${API_URL}/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTask)
+      });
+      if (res.ok) {
+        showToast('Tarefa movida!', 'success');
+      }
+    } catch (error) {
+      showToast('Erro ao mover tarefa', 'error');
+    }
   };
 
   const handleEditTask = (task) => {
@@ -78,8 +126,6 @@ export default function KanbanBoard() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-8 relative">
-      
-      {/* COMPONENTE DE TOAST (Aviso flutuante) */}
       {toast && (
         <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded shadow-lg z-50 text-white font-medium transition-all ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
           {toast.message}
@@ -98,7 +144,6 @@ export default function KanbanBoard() {
         </header>
 
         <div className="flex gap-6 overflow-x-auto pb-4 h-[calc(100vh-140px)]">
-          {/* A Fazer */}
           <div className="bg-gray-200 p-4 rounded-lg shadow-sm min-w-[320px] max-w-[350px] flex-shrink-0 flex flex-col">
             <h2 className="text-lg font-semibold text-gray-700 mb-4 border-b-2 border-gray-300 pb-2">A Fazer ({todoTasks.length})</h2>
             <div className="flex flex-col gap-3 overflow-y-auto pr-1">
@@ -107,7 +152,6 @@ export default function KanbanBoard() {
               ))}
             </div>
           </div>
-          {/* Em Progresso */}
           <div className="bg-gray-200 p-4 rounded-lg shadow-sm min-w-[320px] max-w-[350px] flex-shrink-0 flex flex-col">
             <h2 className="text-lg font-semibold text-gray-700 mb-4 border-b-2 border-blue-300 pb-2">Em Progresso ({inProgressTasks.length})</h2>
             <div className="flex flex-col gap-3 overflow-y-auto pr-1">
@@ -116,7 +160,6 @@ export default function KanbanBoard() {
               ))}
             </div>
           </div>
-          {/* Concluídas */}
           <div className="bg-gray-200 p-4 rounded-lg shadow-sm min-w-[320px] max-w-[350px] flex-shrink-0 flex flex-col">
             <h2 className="text-lg font-semibold text-gray-700 mb-4 border-b-2 border-green-300 pb-2">Concluídas ({doneTasks.length})</h2>
             <div className="flex flex-col gap-3 overflow-y-auto pr-1">
@@ -128,15 +171,14 @@ export default function KanbanBoard() {
         </div>
       </div>
 
-;      {isModalOpen && (
-      <TaskModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleSaveTask}
-        onDelete={handleDeleteTask}
-        taskToEdit={taskToEdit}
-        isLoading={isLoading} 
-      />
+      {isModalOpen && (
+        <TaskModal
+          onClose={() => setIsModalOpen(false)}
+          onSave={handleSaveTask}
+          onDelete={handleDeleteTask}
+          taskToEdit={taskToEdit}
+          isLoading={isLoading} 
+        />
       )}
     </div>
   );
